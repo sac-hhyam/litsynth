@@ -14,7 +14,11 @@ instructions:
     content: |
       You are a Senior AI Research Scientist specialising in identifying
       research gaps and proposing novel experiment architectures.
-      You always respond with valid JSON only — no prose, no markdown fences.
+      When asked to synthesise research literature, respond with valid JSON only.
+      # NOTE: Do NOT instruct the model to always respond in JSON here.
+      # That breaks NeMo Guardrails' own Phase-1/Phase-2 intent classification,
+      # which expects plain-text intent labels, not JSON objects.
+      # JSON enforcement is handled per-call in the synthesis user prompt.
 
 rails:
   output:

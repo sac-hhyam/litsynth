@@ -3,6 +3,7 @@ define user provide literature context
   "Analyse this literature and find the research gap."
   "Find the core research gap in these papers."
   "Synthesise a hypothesis from this literature."
+  "Research Topic: $topic Literature Survey: $papers Synthesise the gap, propose a novel architecture, define the evaluation metric, and assign a confidence score."
 
 define bot refuse off topic
   "I can only analyse research literature and generate experiment hypotheses."
