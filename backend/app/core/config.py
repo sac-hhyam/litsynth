@@ -19,6 +19,11 @@ class Settings:
     # Model served via NIM on the Brev instance
     NIM_MODEL: str = os.getenv("NIM_MODEL", "meta/llama-3.1-70b-instruct")
 
+    # ── Semantic Scholar ─────────────────────────────────────────────────────
+    # API key for the 1 req/s authenticated tier (get one at semanticscholar.org)
+    # If unset, falls back to unauthenticated (heavily throttled, not recommended)
+    S2_API_KEY: str = os.getenv("S2_API_KEY", "")
+
     # ── Database ─────────────────────────────────────────────────────────────
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./litsynth.db")
 

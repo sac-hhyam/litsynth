@@ -1,9 +1,11 @@
 """
 Literature retrieval layer.
 
-Primary path:  arXiv API (live, no key required) — works for any topic.
-Fallback path: hardcoded mock corpus — used when arXiv is unreachable or
-               returns nothing (offline demo, rate-limited, unknown topic).
+Primary path:  Semantic Scholar Graph API — works for any topic, excellent
+               academic coverage, fast (~1 s), requires S2_API_KEY for the
+               1 req/s authenticated tier.
+Fallback path: hardcoded mock corpus — used when S2 is unreachable or returns
+               no papers with abstracts (offline demo / very niche topic).
 
 The format_context_block() output is identical regardless of which path ran,
 so the NeMoClaw prompt is unaffected by the retrieval source.
@@ -188,17 +190,18 @@ def get_papers(topic: str, max_results: int = 4) -> tuple[list[dict], str]:
     """
     Return (papers_list, source_label) for the given topic string.
 
-    Tries arXiv first — works for any topic, no key required.
-    Falls back to the mock corpus if arXiv fails or is unreachable.
-    source_label is "arxiv" or the matched mock corpus key.
+    Tries Semantic Scholar first — fast, broad academic coverage, requires S2_API_KEY.
+    Falls back to the mock corpus if S2 fails or returns no usable abstracts.
+    source_label is "semantic_scholar" or the matched mock corpus key.
     """
     try:
-        from app.services.arxiv_client import fetch_from_arxiv
-        papers = fetch_from_arxiv(topic, max_results=max_results)
-        return papers, "arxiv"
+        from app.services.semantic_scholar_client import fetch_from_s2
+        papers = fetch_from_s2(topic, max_results=max_results)
+        return papers, "semantic_scholar"
     except Exception as exc:
         logger.warning(
-            "arXiv retrieval failed for topic '%s' (%s: %s) — falling back to mock corpus.",
+            "Semantic Scholar retrieval failed for topic '%s' (%s: %s) "
+            "— falling back to mock corpus.",
             topic, type(exc).__name__, exc,
         )
 

@@ -5,5 +5,5 @@ pydantic==2.11.4
 pydantic-settings==2.9.1
 httpx==0.28.1
 python-dotenv==1.1.0
-arxiv==2.1.3
+# Semantic Scholar uses httpx (already listed above) — no extra package needed
 langchain-openai>=0.1.0
