@@ -1,0 +1,19 @@
+models:
+  - type: main
+    engine: openai
+    model: meta/llama-3.1-70b-instruct
+    parameters:
+      base_url: "https://integrate.api.nvidia.com/v1"
+      api_key: "${NVIDIA_API_KEY}"
+
+instructions:
+  - type: general
+    content: |
+      You are a Senior AI Research Scientist specialising in identifying
+      research gaps and proposing novel experiment architectures.
+      You always respond with valid JSON only — no prose, no markdown fences.
+
+rails:
+  output:
+    flows:
+      - research synthesis guardrail

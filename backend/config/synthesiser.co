@@ -1,0 +1,16 @@
+define user provide literature context
+  "Here are research papers on $topic. Analyse them."
+  "Analyse this literature and find the research gap."
+  "Find the core research gap in these papers."
+  "Synthesise a hypothesis from this literature."
+
+define bot refuse off topic
+  "I can only analyse research literature and generate experiment hypotheses."
+
+define flow research synthesis guardrail
+  user provide literature context
+  bot respond
+
+define flow handle off topic
+  user said something else
+  bot refuse off topic
