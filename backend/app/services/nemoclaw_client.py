@@ -183,10 +183,7 @@ class NeMoGuardrailsClient(NeMoClawClient):
         """Attempt to load NeMo Guardrails from the config directory."""
         try:
             from nemoguardrails import RailsConfig, LLMRails  # type: ignore
-
-            # Ensure the NIM API key is visible to LangChain / NeMo Guardrails
-            os.environ["OPENAI_API_KEY"] = self._api_key
-            os.environ["NVIDIA_API_KEY"] = self._api_key
+            from langchain_openai import ChatOpenAI  # type: ignore
 
             if not RAILS_CONFIG_PATH.exists():
                 logger.warning(
@@ -195,18 +192,30 @@ class NeMoGuardrailsClient(NeMoClawClient):
                 )
                 return
 
-            config = RailsConfig.from_path(str(RAILS_CONFIG_PATH))
-            self._rails = LLMRails(config)
-            self._rails_available = True
-            logger.info(
-                "NeMo Guardrails loaded from %s — Colang Synthesiser agent active.",
-                RAILS_CONFIG_PATH,
+            # Build the LangChain LLM directly so the NIM API key is injected
+            # at the Python level — bypasses unreliable ${VAR} YAML substitution.
+            llm = ChatOpenAI(
+                model=self._model,
+                api_key=self._api_key,          # type: ignore[arg-type]
+                base_url=self._base_url,
+                max_tokens=self._max_tokens,
+                temperature=self._temperature,
             )
 
-        except ImportError:
+            config = RailsConfig.from_path(str(RAILS_CONFIG_PATH))
+            self._rails = LLMRails(config, llm=llm)
+            self._rails_available = True
+            logger.info(
+                "NeMo Guardrails loaded from %s — Colang Synthesiser agent active "
+                "(LLM: %s @ %s).",
+                RAILS_CONFIG_PATH, self._model, self._base_url,
+            )
+
+        except ImportError as exc:
             logger.warning(
-                "nemoguardrails not installed — falling back to raw NIM. "
-                "Install with: pip install nemoguardrails"
+                "Required package missing (%s) — falling back to raw NIM. "
+                "Install with: pip install nemoguardrails langchain-openai",
+                exc,
             )
         except Exception as exc:
             logger.warning(

@@ -4,7 +4,10 @@ models:
     model: meta/llama-3.1-70b-instruct
     parameters:
       base_url: "https://integrate.api.nvidia.com/v1"
-      api_key: "${NVIDIA_API_KEY}"
+      # api_key is injected at the Python level via LLMRails(config, llm=llm).
+      # The env-var fallback below is kept for any sub-calls nemoguardrails
+      # makes without the explicit llm instance (e.g. embedding calls).
+      api_key: "${OPENAI_API_KEY}"
 
 instructions:
   - type: general
