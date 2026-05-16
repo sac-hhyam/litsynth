@@ -1,0 +1,17 @@
+# Claude Code internals
+.claude/
+
+# Python
+**/.venv/
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+
+# Database
+**/*.db
+
+# Secrets
+.env
+
+# macOS
+.DS_Store
