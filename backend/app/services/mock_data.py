@@ -1,11 +1,11 @@
 """
 Literature retrieval layer.
 
-Primary path:  Semantic Scholar Graph API — works for any topic, excellent
-               academic coverage, fast (~1 s), requires S2_API_KEY for the
-               1 req/s authenticated tier.
-Fallback path: hardcoded mock corpus — used when S2 is unreachable or returns
-               no papers with abstracts (offline demo / very niche topic).
+Primary path:  Live paper retrieval via semantic_scholar_client.fetch_papers():
+                 1. Semantic Scholar (if S2_API_KEY set)
+                 2. OpenAlex (free, no key required — always attempted)
+Fallback path: hardcoded mock corpus — used when all live sources fail
+               (offline demo / very niche topic / network unavailable).
 
 The format_context_block() output is identical regardless of which path ran,
 so the NeMoClaw prompt is unaffected by the retrieval source.
@@ -195,12 +195,12 @@ def get_papers(topic: str, max_results: int = 4) -> tuple[list[dict], str]:
     source_label is "semantic_scholar" or the matched mock corpus key.
     """
     try:
-        from app.services.semantic_scholar_client import fetch_from_s2
-        papers = fetch_from_s2(topic, max_results=max_results)
-        return papers, "semantic_scholar"
+        from app.services.semantic_scholar_client import fetch_papers
+        papers, source = fetch_papers(topic, max_results=max_results)
+        return papers, source
     except Exception as exc:
         logger.warning(
-            "Semantic Scholar retrieval failed for topic '%s' (%s: %s) "
+            "Live paper retrieval failed for topic '%s' (%s: %s) "
             "— falling back to mock corpus.",
             topic, type(exc).__name__, exc,
         )
