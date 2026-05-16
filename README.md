@@ -1,142 +1,140 @@
-# Lit-Agent: Autonomous Research Hypothesis Generator
+# LitSynth
 
-A backend-only AI research assistant powered by **NVIDIA NeMoClaw** and deployed on **Brev**.
+**Autonomous Research Hypothesis Generator**
 
-Submit a research topic → the agent retrieves literature context → invokes NeMoClaw to synthesise a research gap → persists a structured experiment hypothesis to SQLite.
+Submit any research topic → LitSynth fetches live papers from arXiv → identifies the core research gap → returns a structured, database-persisted experiment hypothesis via REST API.
+
+Built with FastAPI, SQLite, and NVIDIA NIM (LLaMA 3.1 70B). Designed for NeMoClaw agent orchestration on Brev.
 
 ---
 
-## Architecture
+## How It Works
 
 ```
-Client (curl / Swagger UI)
+POST /api/v1/research/analyze
+        │
+        │  202 Accepted  (immediate)
+        ▼
+  BackgroundTask
         │
         ▼
-  FastAPI Router  ──── POST /analyze ──► BackgroundTask
-        │                                      │
-        │                                      ▼
-        │                              AgentRunner (state machine)
-        │                              PENDING → RETRIEVING → SYNTHESIZING → COMPLETED
-        │                                      │
-        │                            ┌─────────┴──────────┐
-        │                            ▼                    ▼
-        │                    mock_data.py          NeMoClawClient
-        │                  (literature corpus)    ┌───────────────┐
-        │                                         │  NVIDIA NIM   │
-        │                                         │  /chat/       │
-        │                                         │  completions  │
-        │                                         └───────────────┘
-        │                                                │
-        │                                       Pydantic validation
-        │                                       (HypothesisOutput)
-        │                                                │
-        │                                               ▼
-        └──────── GET /task/{id}/results ◄──── SQLite (SQLAlchemy)
+  AgentRunner  ── PENDING → RETRIEVING → SYNTHESIZING → COMPLETED
+        │                       │                │
+        │                       ▼                ▼
+        │               arXiv API         NeMoClawClient
+        │               (live papers)     → NVIDIA NIM
+        │                                 → Pydantic validation
+        │                                 → HypothesisOutput schema
+        ▼
+  SQLite  (ResearchTask + GeneratedHypothesis + AgentRunLog)
+        │
+        ▼
+  GET /api/v1/research/task/{id}/results
 ```
 
-**NeMoClaw is responsible for:**
-- Prompt compilation (system + user template fusion)
-- Inference against the NIM endpoint (OpenAI-compatible API)
-- Structured-output enforcement via Pydantic schema validation
-- Retry logic on malformed JSON responses
+Every request is async. The HTTP response returns a `task_id` instantly. You poll the status endpoint to watch the pipeline transition through states in real time, then fetch the structured result once `COMPLETED`.
 
 ---
 
-## Quick Start (Local)
+## Quickstart
+
+**Requirements:** Python 3.10+, an [NVIDIA API key](https://build.nvidia.com) (free tier)
 
 ```bash
-cd backend
+git clone https://github.com/YOUR_USERNAME/litsynth.git
+cd litsynth/backend
+
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env       # add your NVIDIA_API_KEY
+
+cp .env.example .env
+# Add your NVIDIA_API_KEY to .env
+
 uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-Open **http://localhost:8000/docs** for the Swagger UI.
+Open **http://localhost:8000/docs** — Swagger UI is the interactive interface.
 
-> **No API key?** The system automatically switches to `MockNeMoClawClient`,
-> which returns realistic deterministic hypotheses. The full pipeline, state
-> machine, and persistence layer remain identical.
+> **No API key?** The system falls back to `MockNeMoClawClient` automatically.  
+> The full pipeline, state machine, arXiv retrieval, and persistence all run identically.
 
 ---
 
-## Demo Flow
+## Demo
 
 ```bash
-# 1. Check available demo topics
-curl http://localhost:8000/api/v1/research/topics
-
-# 2. Submit a research topic (returns task_id immediately — 202 Accepted)
+# 1. Submit a topic — any topic, arXiv handles retrieval
 curl -X POST http://localhost:8000/api/v1/research/analyze \
   -H "Content-Type: application/json" \
-  -d '{"topic": "efficient llm routing strategies for multi-task inference"}'
+  -d '{"topic": "swarm optimization for IoT network security"}'
 
-# 3. Poll the state machine
-curl http://localhost:8000/api/v1/research/task/<task_id>
+# → {"task_id": "abc-123", "status": "PENDING", ...}
 
-# 4. Fetch the structured hypothesis
-curl http://localhost:8000/api/v1/research/task/<task_id>/results
+# 2. Poll the state machine
+curl http://localhost:8000/api/v1/research/task/abc-123
 
-# 5. Review the agent audit trail
-curl http://localhost:8000/api/v1/research/task/<task_id>/logs
+# → {"status": "SYNTHESIZING", ...}
+
+# 3. Fetch the hypothesis once COMPLETED
+curl http://localhost:8000/api/v1/research/task/abc-123/results
+
+# 4. Inspect the full agent audit trail
+curl http://localhost:8000/api/v1/research/task/abc-123/logs
 ```
 
----
-
-## Brev Deployment
-
-```bash
-# On your Brev instance
-git clone <repo> && cd demo/backend
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env   # fill in NVIDIA_API_KEY
-
-uvicorn main:app --host 0.0.0.0 --port 8000
-
-# From your LOCAL machine — port-forward to access Swagger UI in browser
-brev port-forward <machine-name> 8000:8000
-# Open: http://localhost:8000/docs
+**Example output:**
+```json
+{
+  "hypothesis": {
+    "gap_identified": "Current swarm-based IDS systems optimise detection rate in isolation, ignoring energy constraints of resource-limited IoT edge nodes under adversarial conditions.",
+    "proposed_architecture": "EnergyAware-PSO-IDS: a multi-objective particle swarm optimiser with an adaptive inertia weight controller that jointly minimises false-negative rate and node energy consumption...",
+    "evaluation_metric": "F1 detection rate vs. energy overhead on N-BaIoT benchmark",
+    "confidence_score": "HIGH"
+  }
+}
 ```
-
-For a local NIM container on Brev, set `NIM_BASE_URL=http://localhost:8000/v1` in `.env`.
 
 ---
 
 ## API Reference
 
-| Method   | Endpoint                              | Description                           |
-|----------|---------------------------------------|---------------------------------------|
-| `GET`    | `/health`                             | Service health check                  |
-| `POST`   | `/api/v1/research/analyze`            | Submit topic, start pipeline (202)    |
-| `GET`    | `/api/v1/research/task/{id}`          | Poll pipeline status                  |
-| `GET`    | `/api/v1/research/task/{id}/results`  | Fetch structured hypothesis output    |
-| `GET`    | `/api/v1/research/task/{id}/logs`     | Agent run audit trail                 |
-| `GET`    | `/api/v1/research/tasks`             | List all tasks                        |
-| `GET`    | `/api/v1/research/topics`            | List available demo topics            |
-| `DELETE` | `/api/v1/research/task/{id}`          | Delete task and its output            |
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/health` | Health check |
+| `POST` | `/api/v1/research/analyze` | Submit topic, start pipeline (202) |
+| `GET` | `/api/v1/research/task/{id}` | Poll pipeline status |
+| `GET` | `/api/v1/research/task/{id}/results` | Fetch structured hypothesis |
+| `GET` | `/api/v1/research/task/{id}/logs` | Agent run audit trail |
+| `GET` | `/api/v1/research/tasks` | List all tasks |
+| `GET` | `/api/v1/research/topics` | List hardcoded demo topics |
+| `DELETE` | `/api/v1/research/task/{id}` | Delete task and output |
 
 ---
 
-## Folder Structure
+## Project Structure
 
 ```
 backend/
 ├── app/
-│   ├── api/routes.py           # FastAPI endpoints + BackgroundTasks
-│   ├── core/config.py          # Settings from .env
+│   ├── api/
+│   │   └── routes.py               # All endpoints + BackgroundTask dispatch
+│   ├── core/
+│   │   └── config.py               # Settings loaded from .env
 │   ├── db/
-│   │   ├── database.py         # SQLAlchemy engine & session factory
-│   │   └── models.py           # ResearchTask, GeneratedHypothesis, AgentRunLog
+│   │   ├── database.py             # SQLAlchemy engine, session factory
+│   │   └── models.py               # ResearchTask, GeneratedHypothesis, AgentRunLog
 │   ├── prompts/
-│   │   └── research_synthesis.py  # System & user prompt templates
-│   ├── schemas/pydantic.py     # Request/response + NeMoClaw output contracts
+│   │   └── research_synthesis.py   # System + user prompt templates
+│   ├── schemas/
+│   │   └── pydantic.py             # Request/response + HypothesisOutput contract
 │   ├── services/
-│   │   ├── agent_runner.py     # Pipeline state machine
-│   │   ├── mock_data.py        # Literature corpus (4 topics, 3–4 papers each)
-│   │   └── nemoclaw_client.py  # NeMoClaw / NIM adapter + mock fallback
-│   └── utils/logging.py        # Structured logging config
-├── main.py                     # App entry point
+│   │   ├── agent_runner.py         # Pipeline state machine
+│   │   ├── arxiv_client.py         # Live arXiv paper retrieval
+│   │   ├── mock_data.py            # Fallback hardcoded corpus + unified get_papers()
+│   │   └── nemoclaw_client.py      # NIM adapter, schema enforcement, retry logic
+│   └── utils/
+│       └── logging.py              # Structured logging config
+├── main.py                         # App entry point
 ├── requirements.txt
 └── .env.example
 ```
@@ -145,10 +143,48 @@ backend/
 
 ## Stack
 
-| Component    | Technology                         | Why                                          |
-|--------------|------------------------------------|----------------------------------------------|
-| API          | FastAPI + uvicorn                  | Async, auto-Swagger, production-grade        |
-| Persistence  | SQLite + SQLAlchemy 2.0            | Zero setup, relational, inspectable          |
-| AI Runtime   | NVIDIA NeMoClaw (NIM API)          | Structured output enforcement, NIM inference |
-| Async        | FastAPI `BackgroundTasks`          | Decouples HTTP from LLM latency              |
-| Validation   | Pydantic v2                        | Strict schema enforcement on agent output    |
+| Layer | Technology | Role |
+|---|---|---|
+| API | FastAPI + uvicorn | Async HTTP, auto-Swagger, BackgroundTasks |
+| AI Inference | NVIDIA NIM — LLaMA 3.1 70B | LLM inference via OpenAI-compatible API |
+| Orchestration | NeMoClawClient adapter | Prompt compilation, schema enforcement, retries |
+| Retrieval | arXiv API | Live paper fetching for any topic |
+| Persistence | SQLite + SQLAlchemy 2.0 | Task state, hypothesis output, audit logs |
+| Validation | Pydantic v2 | Strict structured output contract |
+
+---
+
+## Brev Deployment
+
+```bash
+# SSH into your Brev instance
+brev shell <workspace-name>
+
+git clone https://github.com/YOUR_USERNAME/litsynth.git
+cd litsynth/backend
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env          # fill in NVIDIA_API_KEY
+
+uvicorn main:app --host 0.0.0.0 --port 8000
+
+# From your local machine — access Swagger UI in browser
+brev port-forward <workspace-name> --port 8000
+# → http://localhost:8000/docs
+```
+
+To use a local NIM container instead of the hosted API, set `NIM_BASE_URL=http://localhost:8000/v1` in `.env`.
+
+---
+
+## Environment Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `NVIDIA_API_KEY` | — | From [build.nvidia.com](https://build.nvidia.com) |
+| `NIM_BASE_URL` | `https://integrate.api.nvidia.com/v1` | NIM endpoint (swap for local on Brev) |
+| `NIM_MODEL` | `meta/llama-3.1-70b-instruct` | Model served by NIM |
+| `DATABASE_URL` | `sqlite:///./litsynth.db` | SQLAlchemy connection string |
+| `MAX_SYNTHESIS_TOKENS` | `1024` | Max tokens for LLM response |
+| `LLM_TEMPERATURE` | `0.4` | Inference temperature |
+| `LOG_LEVEL` | `INFO` | Logging verbosity |
