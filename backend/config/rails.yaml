@@ -20,7 +20,7 @@ instructions:
       # which expects plain-text intent labels, not JSON objects.
       # JSON enforcement is handled per-call in the synthesis user prompt.
 
-rails:
-  output:
-    flows:
-      - research synthesis guardrail
+# research synthesis guardrail is intentionally NOT registered as an output rail.
+# Registering it as output-only removes it from Phase 2 (generate_next_steps) examples,
+# causing the pipeline to always fall back to "general response".
+# Keeping it as a pure Colang dialog flow lets Phase 2 see it as an example.

@@ -5,11 +5,25 @@ define user provide literature context
   "Synthesise a hypothesis from this literature."
   "Research Topic: $topic Literature Survey: $papers Synthesise the gap, propose a novel architecture, define the evaluation metric, and assign a confidence score."
 
+# Alias intent: LLaMA 70B Phase 1 frequently generates this label instead of
+# "provide literature context". Both labels map to the same bot respond action
+# so Phase 2 always finds a matching example regardless of which label Phase 1 picks.
+define user synthesise research gap
+  "synthesise research gap and propose novel architecture"
+  "synthesise research gap"
+  "ask for research synthesis"
+  "analyse literature and synthesise"
+  "identify research gap"
+
 define bot refuse off topic
   "I can only analyse research literature and generate experiment hypotheses."
 
 define flow research synthesis guardrail
   user provide literature context
+  bot respond
+
+define flow synthesise and propose flow
+  user synthesise research gap
   bot respond
 
 define flow handle off topic
