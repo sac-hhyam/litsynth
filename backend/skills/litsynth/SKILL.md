@@ -1,7 +1,7 @@
 ---
 name: litsynth
 version: "1.0.0"
-description: Fetches academic papers from OpenAlex and synthesises a structured research hypothesis using NVIDIA NIM.
+description: Fetches academic papers from OpenAlex and synthesises a structured research hypothesis via the NeMoClaw agent runtime.
 entrypoint: python synthesise.py
 dependencies:
   - httpx
@@ -14,7 +14,7 @@ env:
 # LitSynth Synthesis Skill
 
 Fetches recent academic papers from OpenAlex and synthesises a structured
-research hypothesis using NVIDIA NIM (Nemotron).
+research hypothesis through the NeMoClaw agent runtime (Nemotron model).
 
 ## Usage
 
