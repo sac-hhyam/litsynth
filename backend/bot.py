@@ -93,7 +93,7 @@ def run_synthesis_in_sandbox(topic: str) -> dict:
         "--no-tty",
         "--workdir", SKILL_WORKDIR,
         "--",
-        "python", SKILL_SCRIPT,
+        "python3", SKILL_SCRIPT,
     ] + topic.split()
 
     logger.info("Dispatching to sandbox: %s", " ".join(cmd))
