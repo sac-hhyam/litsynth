@@ -146,13 +146,26 @@ class NeMoClawClient:
 
     @staticmethod
     def _parse_and_validate(raw: str, model: type[HypothesisOutput]) -> HypothesisOutput:
-        """Strip markdown fences, parse JSON, validate against Pydantic schema."""
+        """
+        Strip markdown fences, extract the JSON object, validate against Pydantic schema.
+
+        Handles three common LLM response shapes:
+          1. Pure JSON                  → parse directly
+          2. ```json ... ```            → extract from fence
+          3. Preamble text + JSON obj   → slice from first '{' to last '}'
+        """
+        # 1. Try fenced block first
         fence_pattern = r"```(?:json)?\s*([\s\S]+?)\s*```"
         match = re.search(fence_pattern, raw)
         json_str = match.group(1) if match else raw.strip()
-        brace_idx = json_str.find("{")
-        if brace_idx > 0:
-            json_str = json_str[brace_idx:]
+
+        # 2. Slice to the first '{' … last '}' to drop any conversational preamble
+        #    or trailing text that the model appended after the JSON object.
+        start = json_str.find("{")
+        end   = json_str.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            json_str = json_str[start : end + 1]
+
         return model.model_validate(json.loads(json_str))
 
 
@@ -236,41 +249,69 @@ class NeMoGuardrailsClient(NeMoClawClient):
 
     def _call_rails(self, system_prompt: str, user_prompt: str) -> str:
         """
-        Call LLMRails.generate_async() synchronously via asyncio.
-        NeMo Guardrails applies the Colang flow before/after NIM inference.
+        Two-phase guardrails strategy:
+
+        Phase A — Guard check via NeMo Guardrails:
+            Send a short intent-classification message to LLMRails.
+            If the rails return the off-topic refusal string, raise so the
+            retry loop surfaces a clean error to the caller.
+
+        Phase B — Synthesis via raw NIM:
+            Once the rails confirm the request is on-topic, call the parent's
+            raw NIM method directly with our carefully crafted SYNTHESIS_SYSTEM_PROMPT.
+            This avoids NeMo Guardrails Phase 3 rewriting the response into
+            conversational text (which produces malformed / truncated JSON).
         """
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
+        # ── Phase A: off-topic guard ─────────────────────────────────────────
+        # Send a lightweight probe message — just enough for Phase 1+2 to
+        # classify intent.  We do NOT use this response for the synthesis.
+        probe_messages = [
+            {
+                "role": "user",
+                "content": (
+                    "Synthesise a hypothesis from this literature. "
+                    f"Research Topic: {user_prompt[:300]}"
+                ),
+            }
         ]
         try:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
-                response = loop.run_until_complete(
-                    self._rails.generate_async(messages=messages)
+                guard_response = loop.run_until_complete(
+                    self._rails.generate_async(messages=probe_messages)
                 )
             finally:
                 loop.close()
 
-            # LLMRails returns either a string or a dict with 'content'
-            if isinstance(response, dict):
-                content = response.get("content", str(response))
+            if isinstance(guard_response, dict):
+                guard_text = guard_response.get("content", str(guard_response))
             else:
-                content = str(response)
+                guard_text = str(guard_response)
+
+            # Check if the rails blocked the request as off-topic
+            if "I can only analyse research literature" in guard_text:
+                raise NeMoClawError(
+                    "NeMo Guardrails rejected the request as off-topic."
+                )
 
             logger.info(
-                "NeMo Guardrails Synthesiser agent completed (rails=%s).",
-                RAILS_CONFIG_PATH.name,
+                "NeMo Guardrails guard passed — routing to raw NIM for synthesis."
             )
-            return content
 
+        except NeMoClawError:
+            raise
         except Exception as exc:
             logger.warning(
-                "NeMo Guardrails runtime error (%s: %s) — falling back to raw NIM.",
+                "NeMo Guardrails guard error (%s: %s) — proceeding to raw NIM.",
                 type(exc).__name__, exc,
             )
-            return super()._call_nim(system_prompt, user_prompt)
+
+        # ── Phase B: structured synthesis via raw NIM ────────────────────────
+        # Bypass LLMRails Phase 3 entirely.  The parent _call_nim sends our
+        # SYNTHESIS_SYSTEM_PROMPT directly to NIM and returns the raw content,
+        # which _parse_and_validate then extracts JSON from.
+        return super()._call_nim(system_prompt, user_prompt)
 
 
 # ── Mock fallback ─────────────────────────────────────────────────────────────
