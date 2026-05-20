@@ -34,6 +34,13 @@ MAX_TOKENS     = int(os.environ.get("MAX_SYNTHESIS_TOKENS", "2048"))
 TEMPERATURE    = float(os.environ.get("LLM_TEMPERATURE", "0.4"))
 TIMEOUT        = 60.0
 
+# OpenShell intercepts HTTPS and re-signs with its own CA.
+# Point httpx to the OpenShell CA bundle so SSL verification passes.
+_OPENSHELL_CA  = "/etc/openshell-tls/ca-bundle.pem"
+SSL_VERIFY: str | bool = (
+    _OPENSHELL_CA if os.path.exists(_OPENSHELL_CA) else True
+)
+
 logging.basicConfig(level=logging.WARNING, stream=sys.stderr)
 logger = logging.getLogger(__name__)
 
@@ -60,7 +67,7 @@ def fetch_papers(topic: str, max_results: int = 4) -> list[dict]:
         "select":   "display_name,authorships,abstract_inverted_index,publication_year",
         "mailto":   "litsynth@demo.nvaitc.ai",
     }
-    with httpx.Client(timeout=TIMEOUT) as client:
+    with httpx.Client(timeout=TIMEOUT, verify=SSL_VERIFY) as client:
         resp = client.get("https://api.openalex.org/works", params=params)
     resp.raise_for_status()
 
@@ -143,7 +150,7 @@ def call_nim(topic: str, context: str) -> str:
         "Authorization": f"Bearer {NVIDIA_API_KEY}",
         "Content-Type":  "application/json",
     }
-    with httpx.Client(timeout=TIMEOUT) as client:
+    with httpx.Client(timeout=TIMEOUT, verify=SSL_VERIFY) as client:
         resp = client.post(f"{NIM_BASE_URL}/chat/completions",
                            json=payload, headers=headers)
     resp.raise_for_status()
