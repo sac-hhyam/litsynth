@@ -1,61 +1,34 @@
-# ──────────────────────────────────────────────────────────────────────────────
-# OpenShell Declarative Security Policy — LitSynth Sandbox
-# Apply with:
-#   nemoclaw lit-synth-sandbox policy-add --from-file backend/config/openshell_policy.yaml
-# Dry-run preview:
-#   nemoclaw lit-synth-sandbox policy-add --from-file backend/config/openshell_policy.yaml --dry-run
-# ──────────────────────────────────────────────────────────────────────────────
+preset:
+  name: litsynth-policy
+  description: "LitSynth sandbox policy — filesystem vault isolation + zero-trust network egress"
 
-version: "1"
-
-# ── Filesystem Access Control ─────────────────────────────────────────────────
-# The sandbox agent may only read/write inside the research_vault directory.
-# All other filesystem paths are implicitly denied.
 filesystem:
   rules:
     - path: /home/ubuntu/litsynth/backend/research_vault
       access: read-write
-      comment: "Synthesis artefacts, cached paper abstracts, and hypothesis outputs"
 
-    - path: /home/ubuntu/litsynth/backend/research_vault/snapshots
-      access: read-write
-      comment: "Sandbox state snapshots for hypothesis versioning"
-
-    # Execution-only access to the installed skill and its dependencies.
-    # The agent can execute these files but cannot modify them at runtime.
     - path: /workspace
       access: read-execute
-      comment: "Skill execution context — installed via nemoclaw skill install"
 
     - path: /tmp
       access: read-write
-      comment: "Temporary scratch space for in-flight synthesis payloads"
 
-# ── Network Egress — Zero-Trust (deny by default) ────────────────────────────
-# Only the two endpoints required for paper retrieval and NIM inference are
-# whitelisted. All other outbound connections are dropped at the gateway.
 network:
   egress:
     default: deny
-
     allow:
       - host: api.openalex.org
         port: 443
         protocol: https
-        comment: "OpenAlex academic paper retrieval (free, no key required)"
 
       - host: integrate.api.nvidia.com
         port: 443
         protocol: https
-        comment: "NVIDIA NIM inference endpoint (Nemotron model)"
 
-      # DNS resolution must remain reachable for hostname lookups.
       - host: "1.1.1.1"
         port: 53
         protocol: udp
-        comment: "Cloudflare DNS — required for hostname resolution"
 
       - host: "8.8.8.8"
         port: 53
         protocol: udp
-        comment: "Google DNS — fallback resolver"
