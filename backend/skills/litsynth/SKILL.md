@@ -1,3 +1,16 @@
+---
+name: litsynth
+version: "1.0.0"
+description: Fetches academic papers from OpenAlex and synthesises a structured research hypothesis using NVIDIA NIM.
+entrypoint: python synthesise.py
+dependencies:
+  - httpx
+env:
+  - NVIDIA_API_KEY
+  - NIM_BASE_URL
+  - NIM_MODEL
+---
+
 # LitSynth Synthesis Skill
 
 Fetches recent academic papers from OpenAlex and synthesises a structured
