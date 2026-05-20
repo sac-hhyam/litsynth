@@ -153,6 +153,8 @@ def call_nim(topic: str, context: str) -> str:
     with httpx.Client(timeout=TIMEOUT, verify=SSL_VERIFY) as client:
         resp = client.post(f"{NIM_BASE_URL}/chat/completions",
                            json=payload, headers=headers)
+    if not resp.is_success:
+        raise RuntimeError(f"NIM {resp.status_code}: {resp.text[:400]}")
     resp.raise_for_status()
     return resp.json()["choices"][0]["message"]["content"]
 
