@@ -57,7 +57,7 @@ NEMOCLAW_SANDBOX   = os.environ.get("NEMOCLAW_SANDBOX", "lit-synth-sandbox")
 SYNTHESIS_TIMEOUT  = int(os.environ.get("SYNTHESIS_TIMEOUT", "120"))
 # Path to the skill script inside the sandbox workspace
 SKILL_SCRIPT       = "synthesise.py"
-SKILL_WORKDIR      = "/workspace"
+SKILL_WORKDIR      = "/sandbox/.openclaw/skills/litsynth"
 # Discord message length hard limit
 DISCORD_MAX_CHARS  = 2000
 
