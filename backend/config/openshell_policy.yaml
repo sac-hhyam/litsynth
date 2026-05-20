@@ -2,7 +2,7 @@ preset:
   name: litsynth-policy
   description: "LitSynth sandbox policy — filesystem vault isolation + zero-trust network egress"
 
-filesystem:
+filesystem_policies:
   rules:
     - path: /home/ubuntu/litsynth/backend/research_vault
       access: read-write
@@ -13,7 +13,7 @@ filesystem:
     - path: /tmp
       access: read-write
 
-network:
+network_policies:
   egress:
     default: deny
     allow:
