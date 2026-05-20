@@ -1,20 +1,23 @@
 """
-Application entry point.
+Application entry point — DECOMMISSIONED (feat/nemoclaw-discord-agent)
+=======================================================================
 
-Startup order:
-  1. Configure logging
-  2. Initialise SQLite schema (idempotent — safe to call on every restart)
-  3. Mount routers
-  4. Expose FastAPI app to uvicorn
+The REST/Swagger interface has been superseded by the NeMoClaw Discord bot.
+The primary interface is now bot.py, which routes !synthesize commands through
+the lit-synth-sandbox OpenShell sandbox via nemoclaw exec.
 
-Run locally:
-  uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+To run the new interface:
+    cd backend
+    source venv/bin/activate
+    pip install discord.py
+    export DISCORD_BOT_TOKEN=<your-token>
+    python bot.py
 
-Run on Brev (from project root):
-  uvicorn main:app --host 0.0.0.0 --port 8000
+To restore the FastAPI server (e.g. for local debugging), uncomment the
+app.include_router lines at the bottom of this file and run:
+    uvicorn main:app --host 0.0.0.0 --port 8000
 
-Swagger UI:  http://localhost:8000/docs
-ReDoc:       http://localhost:8000/redoc
+Swagger UI was at: http://localhost:8000/docs
 """
 from contextlib import asynccontextmanager
 
@@ -23,8 +26,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_settings
 from app.db.database import init_db
-from app.api.routes import router, health_router
 from app.utils.logging import configure_logging
+
+# Route imports retained for reference — not mounted in this branch.
+# from app.api.routes import router, health_router
 
 settings = get_settings()
 configure_logging()
@@ -40,13 +45,9 @@ app = FastAPI(
     title=settings.APP_TITLE,
     version=settings.APP_VERSION,
     description=(
-        "**LitSynth** is a backend research synthesis API powered by NVIDIA NIM (LLaMA 3.1 70B). "
-        "Submit any research topic and the pipeline will:\n\n"
-        "1. Retrieve relevant papers from arXiv\n"
-        "2. Synthesise the core research gap across those papers\n"
-        "3. Generate a structured, database-persisted experiment hypothesis\n\n"
-        "All requests are async — use the `/task/{id}` polling endpoint to watch the "
-        "pipeline move through its states in real time, then fetch results once `COMPLETED`."
+        "⚠️ REST interface decommissioned on feat/nemoclaw-discord-agent branch.\n\n"
+        "The active interface is the NeMoClaw Discord bot (`bot.py`). "
+        "Use `!synthesize <topic>` in Discord to trigger synthesis."
     ),
     lifespan=lifespan,
     docs_url="/docs",
@@ -61,5 +62,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(health_router)
-app.include_router(router, prefix=settings.API_PREFIX)
+# ── REST routes DISABLED — Discord bot is the active interface ────────────────
+# Uncomment to restore the Swagger UI for debugging:
+#
+# from app.api.routes import router, health_router
+# app.include_router(health_router)
+# app.include_router(router, prefix=settings.API_PREFIX)
