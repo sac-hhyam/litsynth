@@ -15,20 +15,9 @@ filesystem_policies:
 
 network_policies:
   egress:
-    default: deny
-    allow:
-      - host: api.openalex.org
-        port: 443
-        protocol: https
-
-      - host: integrate.api.nvidia.com
-        port: 443
-        protocol: https
-
-      - host: "1.1.1.1"
-        port: 53
-        protocol: udp
-
-      - host: "8.8.8.8"
-        port: 53
-        protocol: udp
+    name: litsynth-egress
+    endpoints:
+      - api.openalex.org
+      - integrate.api.nvidia.com
+      - 1.1.1.1
+      - 8.8.8.8
