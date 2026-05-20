@@ -17,7 +17,7 @@ network_policies:
   egress:
     name: litsynth-egress
     endpoints:
-      - api.openalex.org
-      - integrate.api.nvidia.com
-      - 1.1.1.1
-      - 8.8.8.8
+      - host: api.openalex.org
+      - host: integrate.api.nvidia.com
+      - host: 1.1.1.1
+      - host: 8.8.8.8
