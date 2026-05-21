@@ -174,14 +174,44 @@ def extract_json(raw: str) -> dict:
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main() -> None:
+    """
+    Usage:
+      synthesise.py <topic>
+          Fetch papers from OpenAlex then synthesise (requires network access).
+
+      synthesise.py --context '<json>' <topic>
+          Accept pre-fetched papers as JSON string — used when the sandbox
+          proxy blocks OpenAlex. bot.py fetches papers on the host and passes
+          them here so only the NIM call runs inside the sandbox.
+    """
     if len(sys.argv) < 2:
-        print(json.dumps({"error": "Usage: synthesise.py <topic>"}))
+        print(json.dumps({"error": "Usage: synthesise.py [--context <json>] <topic>"}))
         sys.exit(1)
 
-    topic = " ".join(sys.argv[1:])
+    # Parse optional --context argument
+    pre_fetched_papers: list[dict] | None = None
+    args = sys.argv[1:]
+    if args[0] == "--context":
+        if len(args) < 3:
+            print(json.dumps({"error": "--context requires a JSON argument and topic"}))
+            sys.exit(1)
+        try:
+            pre_fetched_papers = json.loads(args[1])
+        except json.JSONDecodeError as exc:
+            print(json.dumps({"error": f"Invalid --context JSON: {exc}"}))
+            sys.exit(1)
+        args = args[2:]
+
+    topic = " ".join(args)
 
     try:
-        papers  = fetch_papers(topic)
+        if pre_fetched_papers is not None:
+            papers = pre_fetched_papers
+            source = "host-fetched"
+        else:
+            papers = fetch_papers(topic)
+            source = "openalex"
+
         context = format_context(papers)
         raw     = call_nim(topic, context)
         result  = extract_json(raw)
@@ -189,9 +219,9 @@ def main() -> None:
         print(json.dumps({"error": str(exc), "topic": topic}))
         sys.exit(1)
 
-    result["topic"]        = topic
-    result["papers_used"]  = len(papers)
-    result["source"]       = "openalex"
+    result["topic"]       = topic
+    result["papers_used"] = len(papers)
+    result["source"]      = source
 
     # Emit the JSON result to stdout — bot.py reads this
     print(json.dumps(result, ensure_ascii=False, indent=2))

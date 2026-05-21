@@ -77,6 +77,62 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 # ── Sandbox exec helper ───────────────────────────────────────────────────────
 
+def fetch_papers_on_host(topic: str) -> list[dict]:
+    """
+    Fetch papers from OpenAlex on the host (unrestricted network).
+    The sandbox proxy blocks api.openalex.org, so we fetch here and
+    pass the results into the sandbox via --context.
+    """
+    import httpx, textwrap
+
+    def _reconstruct_abstract(inv_idx: dict | None) -> str:
+        if not inv_idx:
+            return ""
+        max_pos = max(pos for positions in inv_idx.values() for pos in positions)
+        tokens: list[str] = [""] * (max_pos + 1)
+        for word, positions in inv_idx.items():
+            for pos in positions:
+                tokens[pos] = word
+        return " ".join(t for t in tokens if t)
+
+    params = {
+        "search":   topic,
+        "per_page": 4,
+        "select":   "display_name,authorships,abstract_inverted_index,publication_year",
+        "mailto":   "litsynth@demo.nvaitc.ai",
+    }
+    with httpx.Client(timeout=30.0) as client:
+        resp = client.get("https://api.openalex.org/works", params=params)
+    resp.raise_for_status()
+
+    papers = []
+    for w in resp.json().get("results", []):
+        abstract = _reconstruct_abstract(w.get("abstract_inverted_index"))
+        if not abstract.strip():
+            continue
+        names = [
+            a["author"]["display_name"]
+            for a in w.get("authorships", [])
+            if a.get("author", {}).get("display_name")
+        ]
+        author_str = (", ".join(names[:3]) + " et al." if len(names) > 3
+                      else ", ".join(names))
+        year = w.get("publication_year")
+        if year:
+            author_str = f"{author_str}, {year}"
+        papers.append({
+            "title":    w.get("display_name", "Untitled"),
+            "authors":  author_str,
+            "abstract": textwrap.shorten(abstract, width=800, placeholder="..."),
+        })
+
+    if not papers:
+        raise RuntimeError(f"OpenAlex returned no papers with abstracts for: '{topic}'")
+
+    logger.info("Host fetched %d papers for '%s' from OpenAlex", len(papers), topic)
+    return papers
+
+
 def run_synthesis_in_sandbox(topic: str) -> dict:
     """
     Execute the synthesis skill inside the OpenShell sandbox via NeMoClaw exec.
@@ -88,12 +144,17 @@ def run_synthesis_in_sandbox(topic: str) -> dict:
     Returns the parsed JSON dict emitted by synthesise.py on stdout.
     Raises RuntimeError on subprocess failure or JSON parse error.
     """
+    # Fetch papers on the host — sandbox proxy blocks api.openalex.org
+    papers = fetch_papers_on_host(topic)
+    papers_json = json.dumps(papers)
+
     cmd = [
         "nemoclaw", NEMOCLAW_SANDBOX, "exec",
         "--no-tty",
         "--workdir", SKILL_WORKDIR,
         "--",
         "python3", SKILL_SCRIPT,
+        "--context", papers_json,
     ] + topic.split()
 
     logger.info("Dispatching to sandbox: %s", " ".join(cmd))
