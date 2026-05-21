@@ -27,15 +27,16 @@ import textwrap
 import httpx
 
 # ── Config (from sandbox env) ─────────────────────────────────────────────────
-NVIDIA_API_KEY = os.environ.get("NVIDIA_API_KEY", "")
-NIM_BASE_URL   = os.environ.get("NIM_BASE_URL", "https://integrate.api.nvidia.com/v1")
+NVIDIA_API_KEY = "openshell-managed"   # credentials injected by OpenShell Privacy Router
+NIM_BASE_URL   = os.environ.get("NIM_BASE_URL", "https://inference.local/v1")
 NIM_MODEL      = os.environ.get("NIM_MODEL", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning")
 MAX_TOKENS     = int(os.environ.get("MAX_SYNTHESIS_TOKENS", "2048"))
 TEMPERATURE    = float(os.environ.get("LLM_TEMPERATURE", "0.4"))
 TIMEOUT        = 60.0
 
-# OpenShell intercepts HTTPS and re-signs with its own CA.
-# Point httpx to the OpenShell CA bundle so SSL verification passes.
+# OpenShell Privacy Router intercepts inference.local:443 and forwards to
+# NVIDIA's cloud with injected credentials. It re-signs TLS with its own CA —
+# point httpx to that bundle so SSL verification passes.
 _OPENSHELL_CA  = "/etc/openshell-tls/ca-bundle.pem"
 SSL_VERIFY: str | bool = (
     _OPENSHELL_CA if os.path.exists(_OPENSHELL_CA) else True
