@@ -1,190 +1,242 @@
 # LitSynth
 
-**Autonomous Research Hypothesis Generator**
-
-Submit any research topic → LitSynth fetches live papers from arXiv → identifies the core research gap → returns a structured, database-persisted experiment hypothesis via REST API.
-
-Built with FastAPI, SQLite, and NVIDIA NIM (LLaMA 3.1 70B). Designed for NeMoClaw agent orchestration on Brev.
+**Autonomous AI Research Hypothesis Generator**
+Powered by NVIDIA NeMoClaw · OpenShell Privacy Sandbox · Discord Interface
 
 ---
 
-## How It Works
+## Overview
 
-```
-POST /api/v1/research/analyze
-        │
-        │  202 Accepted  (immediate)
-        ▼
-  BackgroundTask
-        │
-        ▼
-  AgentRunner  ── PENDING → RETRIEVING → SYNTHESIZING → COMPLETED
-        │                       │                │
-        │                       ▼                ▼
-        │               arXiv API         NeMoClawClient
-        │               (live papers)     → NVIDIA NIM
-        │                                 → Pydantic validation
-        │                                 → HypothesisOutput schema
-        ▼
-  SQLite  (ResearchTask + GeneratedHypothesis + AgentRunLog)
-        │
-        ▼
-  GET /api/v1/research/task/{id}/results
-```
+LitSynth is a fully autonomous research hypothesis engine. A researcher types `!synthesize <topic>` in Discord; within seconds the system retrieves live academic abstracts from OpenAlex, passes them through an NVIDIA NeMoClaw / OpenShell sandbox, and returns a structured hypothesis — research gap, proposed architecture, evaluation metric, and confidence score — either as a Discord message or a downloadable Markdown attachment.
 
-Every request is async. The HTTP response returns a `task_id` instantly. You poll the status endpoint to watch the pipeline transition through states in real time, then fetch the structured result once `COMPLETED`.
+The system is built on NVIDIA NeMoClaw v0.0.46 with the OpenClaw agent runtime inside a kernel-level OpenShell sandbox. All NIM inference flows through an OpenShell Privacy Router at `inference.local`, which injects NVIDIA credentials and forwards to `integrate.api.nvidia.com`. Paper retrieval runs on the Brev host (unrestricted network); synthesis runs inside the sandboxed environment. NeMo Guardrails (Colang flows) provide off-topic detection before each synthesis call.
 
 ---
 
-## Quickstart
+## Architecture
 
-**Requirements:** Python 3.10+, an [NVIDIA API key](https://build.nvidia.com) (free tier)
+```
+User: !synthesize <topic>
+          │
+          ▼
+  ┌───────────────────┐
+  │   Discord Server  │
+  └────────┬──────────┘
+           │
+           ▼
+  ┌────────────────────────────────────────────────┐
+  │  bot.py  (Brev HOST — unrestricted network)    │
+  │                                                │
+  │  1. Calls OpenAlex API                         │
+  │     → fetches 4 paper abstracts                │
+  │  2. Serialises papers to JSON                  │
+  └────────────────┬───────────────────────────────┘
+                   │  papers_json via --context flag
+                   │
+                   ▼
+  nemoclaw litsynth-sandbox exec --no-tty \
+    --workdir /sandbox/.openclaw/skills/litsynth \
+    -- python3 synthesise.py "<topic>" --context '<papers_json>'
+                   │
+                   ▼
+  ┌────────────────────────────────────────────────┐
+  │  OpenShell Sandbox (litsynth-sandbox)          │
+  │  Network enforced via proxy 10.200.0.1:3128    │
+  │                                                │
+  │  synthesise.py                                 │
+  │  ├─ Formats context block from pre-fetched     │
+  │  │  papers                                     │
+  │  ├─ Phase A: lightweight NeMo Guardrails probe │
+  │  │  (off-topic detection via LLMRails)         │
+  │  └─ Phase B: raw NIM call via inference.local  │
+  │     ↓                                          │
+  │  OpenShell Privacy Router                      │
+  │  inference.local:443 → integrate.api.nvidia.com│
+  │  (credentials injected by router)              │
+  └────────────────┬───────────────────────────────┘
+                   │  JSON on stdout
+                   ▼
+  ┌────────────────────────────────────────────────┐
+  │  bot.py parses stdout JSON                     │
+  │  ≤2000 chars → Discord message                 │
+  │  >2000 chars → hypothesis_<topic>.md attachment│
+  └────────────────────────────────────────────────┘
+```
+
+**Deployed on:** Brev GPU instance — GCP `g2-standard-4`, NVIDIA L4 24 GB, Toronto region
+
+---
+
+## Quick Start
+
+### Prerequisites
+
+- Brev account with a `g2-standard-4` (NVIDIA L4) instance running
+- SSH access via `~/.brev/brev.pem`
+- NVIDIA NIM API key (`nvapi-...`)
+- Discord bot token
+
+### 1. Clone and install
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/litsynth.git
-cd litsynth/backend
-
+git clone <repo> && cd demo/backend
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-
 cp .env.example .env
-# Add your NVIDIA_API_KEY to .env
-
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+# Fill in: NVIDIA_API_KEY, DISCORD_BOT_TOKEN, NEMOCLAW_SANDBOX
 ```
 
-Open **http://localhost:8000/docs** — Swagger UI is the interactive interface.
+### 2. Install NeMoClaw skill
 
-> **No API key?** The system falls back to `MockNeMoClawClient` automatically.  
-> The full pipeline, state machine, arXiv retrieval, and persistence all run identically.
+```bash
+nemoclaw litsynth-sandbox skill install skills/litsynth
+```
+
+### 3. Verify sandbox connectivity
+
+```bash
+nemoclaw litsynth-sandbox doctor
+nemoclaw litsynth-sandbox exec --no-tty --workdir /sandbox/.openclaw/skills/litsynth \
+  -- python3 synthesise.py "efficient llm routing"
+```
+
+### 4. Run the Discord bot
+
+```bash
+python bot.py
+```
+
+The bot will come online in your Discord server. Type `!synthesize <topic>` in any channel the bot has access to.
+
+### 5. (Optional) Verify host-side paper fetch
+
+```bash
+python -c "
+import asyncio, httpx
+async def test():
+    async with httpx.AsyncClient() as c:
+        r = await c.get('https://api.openalex.org/works?filter=title.search:llm routing&per_page=4')
+        print(r.status_code, len(r.json()['results']), 'papers')
+asyncio.run(test())
+"
+```
 
 ---
 
-## Demo
+## NeMoClaw Commands Reference
 
-```bash
-# 1. Submit a topic — any topic, arXiv handles retrieval
-curl -X POST http://localhost:8000/api/v1/research/analyze \
-  -H "Content-Type: application/json" \
-  -d '{"topic": "swarm optimization for IoT network security"}'
+| Category | Command | Description |
+|---|---|---|
+| **Sandbox** | `nemoclaw list` | List all sandboxes |
+| | `nemoclaw status` | Global NeMoClaw status |
+| | `nemoclaw litsynth-sandbox doctor` | Health-check the sandbox |
+| | `nemoclaw litsynth-sandbox recover` | Attempt auto-recovery |
+| | `nemoclaw litsynth-sandbox rebuild` | Full sandbox rebuild |
+| | `nemoclaw litsynth-sandbox destroy --yes` | Destroy sandbox |
+| **Skill** | `nemoclaw litsynth-sandbox skill install skills/litsynth` | Install synthesis skill |
+| **Policy** | `nemoclaw litsynth-sandbox policy-add --from-file config/openshell_policy.yaml --dry-run` | Dry-run policy change |
+| | `nemoclaw litsynth-sandbox policy-add --from-file config/openshell_policy.yaml` | Apply egress policy |
+| | `nemoclaw litsynth-sandbox policy-list` | List active policies |
+| **Channels** | `nemoclaw litsynth-sandbox channels add discord` | Add Discord channel |
+| | `nemoclaw litsynth-sandbox channels list` | List registered channels |
+| **Inference** | `nemoclaw inference get --json` | Inspect inference config |
+| **Exec** | `nemoclaw litsynth-sandbox exec --no-tty --workdir /sandbox/.openclaw/skills/litsynth -- python3 synthesise.py "<topic>"` | Run synthesis directly |
+| **Cleanup** | `docker stop nemoclaw-openshell-gateway && docker rm nemoclaw-openshell-gateway` | Remove gateway container |
 
-# → {"task_id": "abc-123", "status": "PENDING", ...}
+---
 
-# 2. Poll the state machine
-curl http://localhost:8000/api/v1/research/task/abc-123
+## Output Schema
 
-# → {"status": "SYNTHESIZING", ...}
-
-# 3. Fetch the hypothesis once COMPLETED
-curl http://localhost:8000/api/v1/research/task/abc-123/results
-
-# 4. Inspect the full agent audit trail
-curl http://localhost:8000/api/v1/research/task/abc-123/logs
-```
-
-**Example output:**
 ```json
 {
-  "hypothesis": {
-    "gap_identified": "Current swarm-based IDS systems optimise detection rate in isolation, ignoring energy constraints of resource-limited IoT edge nodes under adversarial conditions.",
-    "proposed_architecture": "EnergyAware-PSO-IDS: a multi-objective particle swarm optimiser with an adaptive inertia weight controller that jointly minimises false-negative rate and node energy consumption...",
-    "evaluation_metric": "F1 detection rate vs. energy overhead on N-BaIoT benchmark",
-    "confidence_score": "HIGH"
-  }
+  "gap_identified": "Specific shared limitation identified across papers",
+  "proposed_architecture": "Named architecture with components and training paradigm",
+  "evaluation_metric": "Metric on benchmark (e.g. MMLU accuracy at 10ms latency)",
+  "confidence_score": "HIGH | MEDIUM | LOW",
+  "topic": "The submitted research topic",
+  "papers_used": 4,
+  "source": "host-fetched | openalex | semantic_scholar"
 }
 ```
 
----
-
-## API Reference
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/health` | Health check |
-| `POST` | `/api/v1/research/analyze` | Submit topic, start pipeline (202) |
-| `GET` | `/api/v1/research/task/{id}` | Poll pipeline status |
-| `GET` | `/api/v1/research/task/{id}/results` | Fetch structured hypothesis |
-| `GET` | `/api/v1/research/task/{id}/logs` | Agent run audit trail |
-| `GET` | `/api/v1/research/tasks` | List all tasks |
-| `GET` | `/api/v1/research/topics` | List hardcoded demo topics |
-| `DELETE` | `/api/v1/research/task/{id}` | Delete task and output |
-
----
-
-## Project Structure
-
-```
-backend/
-├── app/
-│   ├── api/
-│   │   └── routes.py               # All endpoints + BackgroundTask dispatch
-│   ├── core/
-│   │   └── config.py               # Settings loaded from .env
-│   ├── db/
-│   │   ├── database.py             # SQLAlchemy engine, session factory
-│   │   └── models.py               # ResearchTask, GeneratedHypothesis, AgentRunLog
-│   ├── prompts/
-│   │   └── research_synthesis.py   # System + user prompt templates
-│   ├── schemas/
-│   │   └── pydantic.py             # Request/response + HypothesisOutput contract
-│   ├── services/
-│   │   ├── agent_runner.py         # Pipeline state machine
-│   │   ├── arxiv_client.py         # Live arXiv paper retrieval
-│   │   ├── mock_data.py            # Fallback hardcoded corpus + unified get_papers()
-│   │   └── nemoclaw_client.py      # NIM adapter, schema enforcement, retry logic
-│   └── utils/
-│       └── logging.py              # Structured logging config
-├── main.py                         # App entry point
-├── requirements.txt
-└── .env.example
-```
-
----
-
-## Stack
-
-| Layer | Technology | Role |
-|---|---|---|
-| API | FastAPI + uvicorn | Async HTTP, auto-Swagger, BackgroundTasks |
-| AI Inference | NVIDIA NIM — LLaMA 3.1 70B | LLM inference via OpenAI-compatible API |
-| Orchestration | NeMoClawClient adapter | Prompt compilation, schema enforcement, retries |
-| Retrieval | arXiv API | Live paper fetching for any topic |
-| Persistence | SQLite + SQLAlchemy 2.0 | Task state, hypothesis output, audit logs |
-| Validation | Pydantic v2 | Strict structured output contract |
-
----
-
-## Brev Deployment
-
-```bash
-# SSH into your Brev instance
-brev shell <workspace-name>
-
-git clone https://github.com/YOUR_USERNAME/litsynth.git
-cd litsynth/backend
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env          # fill in NVIDIA_API_KEY
-
-uvicorn main:app --host 0.0.0.0 --port 8000
-
-# From your local machine — access Swagger UI in browser
-brev port-forward <workspace-name> --port 8000
-# → http://localhost:8000/docs
-```
-
-To use a local NIM container instead of the hosted API, set `NIM_BASE_URL=http://localhost:8000/v1` in `.env`.
+Discord output behaviour:
+- Result ≤ 2000 characters → posted as a Discord message
+- Result > 2000 characters → uploaded as `hypothesis_<topic>.md`
 
 ---
 
 ## Environment Variables
 
-| Variable | Default | Description |
+| Variable | Description | Example |
 |---|---|---|
-| `NVIDIA_API_KEY` | — | From [build.nvidia.com](https://build.nvidia.com) |
-| `NIM_BASE_URL` | `https://integrate.api.nvidia.com/v1` | NIM endpoint (swap for local on Brev) |
-| `NIM_MODEL` | `meta/llama-3.1-70b-instruct` | Model served by NIM |
-| `DATABASE_URL` | `sqlite:///./litsynth.db` | SQLAlchemy connection string |
-| `MAX_SYNTHESIS_TOKENS` | `1024` | Max tokens for LLM response |
-| `LLM_TEMPERATURE` | `0.4` | Inference temperature |
-| `LOG_LEVEL` | `INFO` | Logging verbosity |
+| `NVIDIA_API_KEY` | NVIDIA NIM API key | `nvapi-...` |
+| `NIM_BASE_URL` | NIM inference endpoint | `https://inference.local/v1` |
+| `NIM_MODEL` | Model identifier | `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning` |
+| `DISCORD_BOT_TOKEN` | Discord bot token | `MTI3...` |
+| `NEMOCLAW_SANDBOX` | Sandbox name | `litsynth-sandbox` |
+| `SYNTHESIS_TIMEOUT` | Max seconds per synthesis call | `120` |
+| `DATABASE_URL` | SQLite path (legacy) | `sqlite:///./litsynth.db` |
+| `MAX_SYNTHESIS_TOKENS` | Token limit for NIM response | `1024` |
+| `LLM_TEMPERATURE` | Sampling temperature | `0.4` |
+| `LOG_LEVEL` | Logging verbosity | `INFO` |
+
+> **Note on `NIM_BASE_URL`:** Inside the sandbox, always use `https://inference.local/v1`. The OpenShell Privacy Router intercepts this hostname, injects NVIDIA credentials, and forwards to `integrate.api.nvidia.com`. Do not call `integrate.api.nvidia.com` directly from inside the sandbox — it is blocked by the proxy.
+
+---
+
+## Repository Structure
+
+```
+backend/
+├── main.py                           # FastAPI app (decommissioned on this branch)
+├── bot.py                            # Discord bot — primary interface
+├── skills/
+│   └── litsynth/
+│       ├── SKILL.md                  # NeMoClaw skill manifest (YAML frontmatter)
+│       ├── synthesise.py             # Synthesis skill (runs inside sandbox)
+│       └── requirements.txt
+├── config/
+│   ├── openshell_policy.yaml         # Network egress policy (litsynth-policy)
+│   ├── rails.yaml                    # NeMo Guardrails config
+│   └── synthesiser.co                # Colang flow definitions
+├── app/
+│   ├── api/routes.py
+│   ├── core/config.py
+│   ├── db/                           # SQLAlchemy models + migrations
+│   ├── prompts/research_synthesis.py
+│   ├── schemas/pydantic.py
+│   └── services/
+│       ├── nemoclaw_client.py        # NeMoGuardrailsClient (two-phase guard + NIM)
+│       ├── mock_data.py              # Mock corpus fallback
+│       └── semantic_scholar_client.py
+└── .env.example
+```
+
+---
+
+## Branch Structure
+
+| Branch | Interface | Key Differences |
+|---|---|---|
+| `main` | FastAPI REST API | arXiv retrieval (replaced), Swagger UI at `/docs`, synchronous polling pattern |
+| `feat/nemoclaw-discord-agent` | Discord bot | OpenAlex on host, NeMoClaw sandbox exec, OpenShell Privacy Router, NeMo Guardrails two-phase pipeline |
+
+The `main` branch is an earlier prototype with a decommissioned FastAPI interface. All active development is on `feat/nemoclaw-discord-agent`.
+
+---
+
+## Stack
+
+| Component | Technology |
+|---|---|
+| Sandbox orchestration | NVIDIA NeMoClaw v0.0.46 |
+| Agent runtime | OpenClaw v2026.4.24 |
+| Kernel sandbox | OpenShell |
+| LLM inference | NVIDIA NIM — `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning` |
+| Paper retrieval | OpenAlex API (free, no key required) |
+| User interface | Discord (`discord.py`) |
+| Guardrails | NeMo Guardrails (Colang) |
+| Task persistence | SQLite + SQLAlchemy |
+| HTTP client | httpx, Pydantic |
+| Language | Python 3.10 |
+| Deployment | Brev — GCP `g2-standard-4`, NVIDIA L4 24 GB, Toronto |
